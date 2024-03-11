@@ -6,18 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-halo2-ecc = { git = "https://github.com/axiom-crypto/halo2-lib.git", features = [
-    "halo2-axiom",
-    "display",
-], default-features = false }
-halo2-base = { git = "https://github.com/axiom-crypto/halo2-lib.git", features = [
-    "test-utils",
-], default-features = false }
 rand = "*"
 anyhow = "*"
-snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", features = [
-    "revm",
-] }
-snark-verifier = { git = "https://github.com/axiom-crypto/snark-verifier.git", features = [
-    "revm",
-] }
+
+
+[dependencies.snark-verifier]
+git = "https://github.com/axiom-crypto/snark-verifier.git"
+features = ["revm"]
+
+[dependencies.snark-verifier-sdk]
+git = "https://github.com/axiom-crypto/snark-verifier.git"
+features = ["revm"]
+
+[dependencies.pse-poseidon]
+git = "https://github.com/axiom-crypto/pse-poseidon.git"

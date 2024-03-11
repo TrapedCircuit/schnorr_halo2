@@ -799,52 +799,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "halo2-base"
-version = "0.4.1"
-source = "git+https://github.com/axiom-crypto/halo2-lib.git#86f676e19fd3fb0b0874e1c3427a83000f95e853"
-dependencies = [
- "ark-std 0.3.0",
- "getset",
- "halo2-axiom",
- "itertools 0.11.0",
- "log",
- "num-bigint",
- "num-integer",
- "num-traits",
- "poseidon-primitives",
- "rand",
- "rand_chacha",
- "rayon",
- "rustc-hash",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "halo2-ecc"
 version = "0.4.1"
 source = "git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.4.1-git#2fe813b3ccd4f224da195d61829effb20599dcbd"
 dependencies = [
- "halo2-base 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.4.1-git)",
- "itertools 0.11.0",
- "num-bigint",
- "num-integer",
- "num-traits",
- "rand",
- "rand_chacha",
- "rand_core",
- "rayon",
- "serde",
- "serde_json",
- "test-case",
-]
-
-[[package]]
-name = "halo2-ecc"
-version = "0.4.1"
-source = "git+https://github.com/axiom-crypto/halo2-lib.git#86f676e19fd3fb0b0874e1c3427a83000f95e853"
-dependencies = [
- "halo2-base 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git)",
+ "halo2-base",
  "itertools 0.11.0",
  "num-bigint",
  "num-integer",
@@ -1395,6 +1354,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-poseidon"
+version = "0.2.0"
+source = "git+https://github.com/axiom-crypto/pse-poseidon.git#19d3b09481bda0e95e7c005906365d070fceb752"
+dependencies = [
+ "halo2curves-axiom",
+ "subtle",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1664,8 +1632,7 @@ name = "schnorr_halo2"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "halo2-base 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git)",
- "halo2-ecc 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git)",
+ "pse-poseidon",
  "rand",
  "snark-verifier",
  "snark-verifier-sdk",
@@ -1809,8 +1776,8 @@ name = "snark-verifier"
 version = "0.1.7"
 source = "git+https://github.com/axiom-crypto/snark-verifier.git#4b733e0ca8be017954b111f359bcf8622c5b7c66"
 dependencies = [
- "halo2-base 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.4.1-git)",
- "halo2-ecc 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.4.1-git)",
+ "halo2-base",
+ "halo2-ecc",
  "hex",
  "itertools 0.11.0",
  "lazy_static",
@@ -1834,7 +1801,7 @@ dependencies = [
  "bincode",
  "ethereum-types",
  "getset",
- "halo2-base 0.4.1 (git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.4.1-git)",
+ "halo2-base",
  "hex",
  "itertools 0.11.0",
  "lazy_static",

@@ -1,27 +1,30 @@
 use std::path::Path;
 
-use halo2_base::halo2_proofs::dev::MockProver;
-use halo2_base::halo2_proofs::halo2curves::bn256::Bn256;
-use halo2_base::halo2_proofs::halo2curves::group::Curve;
-use halo2_base::halo2_proofs::plonk::{keygen_pk, keygen_vk};
-use halo2_base::halo2_proofs::poly::kzg::commitment::ParamsKZG;
-use halo2_base::utils::testing::{check_proof, gen_proof};
-use halo2_base::{
-    gates::{circuit::builder::RangeCircuitBuilder, RangeChip},
-    halo2_proofs::halo2curves::bn256::{Fr, G1Affine},
-    Context,
+use snark_verifier::util::arithmetic::Curve;
+use snark_verifier::{
+    halo2_base::{
+        gates::{circuit::builder::RangeCircuitBuilder, RangeChip},
+        halo2_proofs::{
+            dev::MockProver,
+            halo2curves::bn256::{Bn256, Fr, G1Affine},
+            plonk::{keygen_pk, keygen_vk},
+            poly::kzg::commitment::ParamsKZG,
+        },
+        Context,
+    },
+    halo2_ecc::{bn254::FpChip, ecc::EccChip},
 };
-use halo2_ecc::{bn254::FpChip, ecc::EccChip};
-use snark_verifier_sdk::evm::evm_verify;
+use snark_verifier_sdk::evm::{evm_verify, gen_evm_proof_shplonk};
 use snark_verifier_sdk::SHPLONK;
 pub mod schnorr;
+pub mod utils;
 
 const PATH: &str = "./src/evm_verifier.sol";
 
 fn main() {
     // 1. config
-    let k = 10;
-    let lookup_bits = 9;
+    let k = 20;
+    let lookup_bits = 19;
     let (mut builder, range) = sample_setup(k, lookup_bits);
     let (p, q, check_acc) = sample_input();
 
@@ -45,17 +48,19 @@ fn main() {
     let break_points = builder.break_points();
     drop(builder);
     let mut builder = RangeCircuitBuilder::<Fr>::prover(config_params, break_points);
+
     let range = RangeChip::new(lookup_bits, builder.lookup_manager().clone());
     sample_prove(builder.main(0), &range, p, q, check_acc);
     let num_instance = builder.config_params.num_instance_columns;
     let instances = builder.assigned_instances.clone();
     println!("instances: {:?}", instances);
-    let proof = gen_proof(&params, &pk, builder);
-    check_proof(&params, pk.get_vk(), &proof, true);
+    let proof = gen_evm_proof_shplonk(&params, &pk, builder, vec![]);
 
-    // // 6. verify in evm
+    // 6. verify in evm
     let path = Path::new(PATH);
-    let deployment_code = schnorr::gen_evm_verifier::<SHPLONK>(&params, pk.get_vk(), vec![num_instance], Some(path));
+    // let deployment_code =
+    //     gen_evm_verifier_shplonk::<RangeCircuitBuilder<Fr>>(&params, pk.get_vk(), vec![num_instance], Some(path));
+    let deployment_code = utils::gen_evm_verifier::<SHPLONK>(&params, pk.get_vk(), vec![num_instance], Some(path));
     evm_verify(deployment_code, vec![], proof);
 }
 
@@ -86,4 +91,3 @@ pub fn sample_input() -> (G1Affine, G1Affine, G1Affine) {
     let check_acc = (p + q).to_affine();
     (p, q, check_acc)
 }
-
