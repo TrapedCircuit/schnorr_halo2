@@ -6,8 +6,8 @@ use snark_verifier::halo2_ecc::bn254::FpChip;
 use snark_verifier::halo2_ecc::ecc::{EcPoint, EccChip};
 use snark_verifier::util::arithmetic::{Curve, Field};
 
-const RF: usize = 8;
-const RP: usize = 57;
+pub const RF: usize = 8;
+pub const RP: usize = 57;
 
 #[derive(Clone, Copy)]
 pub struct Signature {
@@ -21,11 +21,10 @@ pub struct SignatureCircuit {
     pub challenge: AssignedValue<Fr>,
     pub response: AssignedValue<Fr>,
     pub compute_key: ComputeKeyCircuit,
-
 }
 
 impl Signature {
-    pub fn sign<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fq], rng: &mut R) -> anyhow::Result<Self> {
+    pub fn sign<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fr], rng: &mut R) -> anyhow::Result<Self> {
         let nonce = Fr::random(rng);
         let g_r = (G1Affine::generator() * nonce).to_affine();
 
@@ -35,32 +34,54 @@ impl Signature {
         let address: Address = compute_key.into();
 
         let mut preimage = Vec::with_capacity(4 + msg.len());
-        preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| g.x));
+        preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| Fr::from_bytes(&g.x.to_bytes()).unwrap()));
         preimage.extend(msg.iter());
 
-        let mut native_poseidon = pse_poseidon::Poseidon::<Fq, 3, 2>::new(RF, RP);
+        let mut native_poseidon = pse_poseidon::Poseidon::<Fr, 3, 2>::new(RF, RP);
         native_poseidon.update(&preimage);
 
-        let challenge = Fr::from_bytes(&native_poseidon.squeeze().to_bytes()).unwrap(); // TODO: handle error
+        let challenge = native_poseidon.squeeze();
         let response = nonce - (challenge * pk.sk_sig);
 
         Ok(Self { challenge, response, compute_key })
     }
 
-    pub fn verify(&self, address: Address, msg: &[Fq]) -> bool {
+    pub fn sign_for_test<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fr], rng: &mut R) -> anyhow::Result<(Self, Vec<G1Affine>)> {
+        let nonce = Fr::random(rng);
+        let g_r = (G1Affine::generator() * nonce).to_affine();
+
+        let compute_key = ComputeKey::try_from(pk)?;
+        let pk_sig = compute_key.pk_sig;
+        let pr_sig = compute_key.pr_sig;
+        let address: Address = compute_key.into();
+
+        let mut preimage = Vec::with_capacity(4 + msg.len());
+        preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| Fr::from_bytes(&g.x.to_bytes()).unwrap()));
+        preimage.extend(msg.iter());
+
+        let mut native_poseidon = pse_poseidon::Poseidon::<Fr, 3, 2>::new(RF, RP);
+        native_poseidon.update(&preimage);
+
+        let challenge = native_poseidon.squeeze();
+        let response = nonce - (challenge * pk.sk_sig);
+
+        Ok((Self { challenge, response, compute_key }, vec![g_r, pk_sig, pr_sig, address]))
+    }
+
+    pub fn verify(&self, address: Address, msg: &[Fr]) -> bool {
         let pk_sig = self.compute_key.pk_sig;
         let pr_sig = self.compute_key.pr_sig;
 
         let g_r = (G1Affine::generator() * self.response + (pk_sig * self.challenge)).to_affine();
 
         let mut preimage = Vec::with_capacity(4 + msg.len());
-        preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| g.x));
+        preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| Fr::from_bytes(&g.x.to_bytes()).unwrap()));
         preimage.extend(msg.iter());
 
-        let mut native_poseidon = pse_poseidon::Poseidon::<Fq, 3, 2>::new(RF, RP);
+        let mut native_poseidon = pse_poseidon::Poseidon::<Fr, 3, 2>::new(RF, RP);
         native_poseidon.update(&preimage);
 
-        let candidate_challenge = Fr::from_bytes(&native_poseidon.squeeze().to_bytes()).unwrap(); // TODO: handle error
+        let candidate_challenge = native_poseidon.squeeze();
         let candidate_address: Address = self.compute_key.into();
 
         self.challenge == candidate_challenge && candidate_address == address
@@ -83,13 +104,6 @@ pub struct ComputeKey {
     pub sk_prf: Fr,
 }
 
-#[derive(Clone)]
-pub struct ComputeKeyCircuit {
-    pub pk_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
-    pub pr_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
-    pub sk_prf: AssignedValue<Fr>,
-}
-
 impl ComputeKey {
     pub fn load_witness(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> ComputeKeyCircuit {
         ComputeKeyCircuit {
@@ -99,6 +113,26 @@ impl ComputeKey {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct ComputeKeyCircuit {
+    pub pk_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
+    pub pr_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
+    pub sk_prf: AssignedValue<Fr>,
+}
+
+impl ComputeKeyCircuit {
+    pub fn load_address(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> EcPoint<Fr, ProperCrtUint<Fr>> {
+        let g = G1Affine::generator();
+        let g = ecc_chip.assign_point_unchecked(ctx, g);
+        let pk_prf = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![self.sk_prf.clone()], ecc_chip.field_chip().limb_bits, 4);
+        let pk_prf = ecc_chip.add_unequal(ctx, pk_prf, self.pk_sig.clone(), true);
+        let pk_prf = ecc_chip.add_unequal(ctx, pk_prf, self.pr_sig.clone(), true);
+        pk_prf
+    }
+}
+
+
 
 impl TryFrom<&PrivateKey> for ComputeKey {
     type Error = anyhow::Error;
@@ -137,9 +171,25 @@ pub mod tests {
             PrivateKey { seed: Fq::random(&mut rng), sk_sig: Fr::random(&mut rng), r_sig: Fr::random(&mut rng) };
         let public_key = ComputeKey::try_from(&private_key).unwrap();
 
-        let msg = vec![Fq::random(&mut rng), Fq::random(&mut rng), Fq::random(&mut rng)];
+        let msg = vec![Fr::random(&mut rng), Fr::random(&mut rng), Fr::random(&mut rng)];
         let signature = Signature::sign(&private_key, &msg, &mut rng).unwrap();
 
         assert!(signature.verify(public_key.into(), &msg));
+    }
+
+    #[test]
+    fn test_sign_verify_fail() {
+        let mut rng = OsRng;
+        let private_key =
+            PrivateKey { seed: Fq::random(&mut rng), sk_sig: Fr::random(&mut rng), r_sig: Fr::random(&mut rng) };
+        let public_key = ComputeKey::try_from(&private_key).unwrap();
+
+        let msg = vec![Fr::random(&mut rng), Fr::random(&mut rng), Fr::random(&mut rng)];
+        let signature = Signature::sign(&private_key, &msg, &mut rng).unwrap();
+
+        let mut wrong_msg = msg.clone();
+        wrong_msg[0] = Fr::random(&mut rng);
+
+        assert!(!signature.verify(public_key.into(), &wrong_msg));
     }
 }

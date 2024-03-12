@@ -15,7 +15,7 @@ use snark_verifier::{
     halo2_ecc::{bn254::FpChip, ecc::EccChip},
 };
 use snark_verifier_sdk::evm::{evm_verify, gen_evm_proof_shplonk};
-use snark_verifier_sdk::SHPLONK;
+use snark_verifier_sdk::{CircuitExt, SHPLONK};
 pub mod schnorr;
 pub mod utils;
 pub mod circuit;
@@ -52,16 +52,15 @@ fn main() {
 
     let range = RangeChip::new(lookup_bits, builder.lookup_manager().clone());
     sample_prove(builder.main(0), &range, p, q, check_acc);
-    let num_instance = builder.config_params.num_instance_columns;
-    let instances = builder.assigned_instances.clone();
-    println!("instances: {:?}", instances);
-    let proof = gen_evm_proof_shplonk(&params, &pk, builder, vec![]);
+    let instances = builder.instances();
+    let num_instance = builder.num_instance();
+    let proof = gen_evm_proof_shplonk(&params, &pk, builder, instances);
 
     // 6. verify in evm
     let path = Path::new(PATH);
     // let deployment_code =
     //     gen_evm_verifier_shplonk::<RangeCircuitBuilder<Fr>>(&params, pk.get_vk(), vec![num_instance], Some(path));
-    let deployment_code = utils::gen_evm_verifier::<SHPLONK>(&params, pk.get_vk(), vec![num_instance], Some(path));
+    let deployment_code = utils::gen_evm_verifier::<SHPLONK>(&params, pk.get_vk(), num_instance, Some(path));
     evm_verify(deployment_code, vec![], proof);
 }
 
