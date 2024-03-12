@@ -2,7 +2,8 @@ use rand::{CryptoRng, Rng};
 use snark_verifier::halo2_base::halo2_proofs::halo2curves::bn256::{Fq, Fr, G1Affine};
 use snark_verifier::halo2_base::{AssignedValue, Context};
 use snark_verifier::halo2_ecc::bigint::ProperCrtUint;
-use snark_verifier::halo2_ecc::ecc::EcPoint;
+use snark_verifier::halo2_ecc::bn254::FpChip;
+use snark_verifier::halo2_ecc::ecc::{EcPoint, EccChip};
 use snark_verifier::util::arithmetic::{Curve, Field};
 
 const RF: usize = 8;
@@ -10,9 +11,17 @@ const RP: usize = 57;
 
 #[derive(Clone, Copy)]
 pub struct Signature {
-    pub challege: Fr,
+    pub challenge: Fr,
     pub response: Fr,
     pub compute_key: ComputeKey,
+}
+
+#[derive(Clone)]
+pub struct SignatureCircuit {
+    pub challenge: AssignedValue<Fr>,
+    pub response: AssignedValue<Fr>,
+    pub compute_key: ComputeKeyCircuit,
+
 }
 
 impl Signature {
@@ -35,14 +44,14 @@ impl Signature {
         let challenge = Fr::from_bytes(&native_poseidon.squeeze().to_bytes()).unwrap(); // TODO: handle error
         let response = nonce - (challenge * pk.sk_sig);
 
-        Ok(Self { challege: challenge, response, compute_key })
+        Ok(Self { challenge, response, compute_key })
     }
 
     pub fn verify(&self, address: Address, msg: &[Fq]) -> bool {
         let pk_sig = self.compute_key.pk_sig;
         let pr_sig = self.compute_key.pr_sig;
 
-        let g_r = (G1Affine::generator() * self.response + (pk_sig * self.challege)).to_affine();
+        let g_r = (G1Affine::generator() * self.response + (pk_sig * self.challenge)).to_affine();
 
         let mut preimage = Vec::with_capacity(4 + msg.len());
         preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| g.x));
@@ -54,16 +63,16 @@ impl Signature {
         let candidate_challenge = Fr::from_bytes(&native_poseidon.squeeze().to_bytes()).unwrap(); // TODO: handle error
         let candidate_address: Address = self.compute_key.into();
 
-        self.challege == candidate_challenge && candidate_address == address
+        self.challenge == candidate_challenge && candidate_address == address
     }
 
-    pub fn verify_in_circuit(
-        &self,
-        ctx: &mut Context<Fr>,
-        address: EcPoint<Fq, ProperCrtUint<Fr>>,
-        msg: &[ProperCrtUint<Fr>],
-    ) -> AssignedValue<Fr> {
-        unimplemented!()
+    pub fn load_witness(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> SignatureCircuit {
+        let [challenge, response]: [_; 2] = ctx.assign_witnesses([self.challenge, self.response]).try_into().unwrap();
+        SignatureCircuit {
+            challenge,
+            response,
+            compute_key: self.compute_key.load_witness(ctx, ecc_chip),
+        }
     }
 }
 
@@ -72,6 +81,23 @@ pub struct ComputeKey {
     pub pk_sig: G1Affine,
     pub pr_sig: G1Affine,
     pub sk_prf: Fr,
+}
+
+#[derive(Clone)]
+pub struct ComputeKeyCircuit {
+    pub pk_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
+    pub pr_sig: EcPoint<Fr, ProperCrtUint<Fr>>,
+    pub sk_prf: AssignedValue<Fr>,
+}
+
+impl ComputeKey {
+    pub fn load_witness(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> ComputeKeyCircuit {
+        ComputeKeyCircuit {
+            pk_sig: ecc_chip.assign_point_unchecked(ctx, self.pk_sig),
+            pr_sig: ecc_chip.assign_point_unchecked(ctx, self.pr_sig),
+            sk_prf: ctx.assign_witnesses([self.sk_prf])[0],
+        }
+    }
 }
 
 impl TryFrom<&PrivateKey> for ComputeKey {

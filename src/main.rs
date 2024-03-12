@@ -18,6 +18,7 @@ use snark_verifier_sdk::evm::{evm_verify, gen_evm_proof_shplonk};
 use snark_verifier_sdk::SHPLONK;
 pub mod schnorr;
 pub mod utils;
+pub mod circuit;
 
 const PATH: &str = "./src/evm_verifier.sol";
 
