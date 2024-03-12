@@ -46,7 +46,7 @@ impl Signature {
         Ok(Self { challenge, response, compute_key })
     }
 
-    pub fn sign_for_test<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fr], rng: &mut R) -> anyhow::Result<(Self, Vec<G1Affine>)> {
+    pub fn sign_for_test<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fr], rng: &mut R) -> anyhow::Result<(Self, Vec<Fr>)> {
         let nonce = Fr::random(rng);
         let g_r = (G1Affine::generator() * nonce).to_affine();
 
@@ -59,20 +59,27 @@ impl Signature {
         preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| Fr::from_bytes(&g.x.to_bytes()).unwrap()));
         preimage.extend(msg.iter());
 
+        println!("preimage1: {:?}", preimage);
+
         let mut native_poseidon = pse_poseidon::Poseidon::<Fr, 3, 2>::new(RF, RP);
         native_poseidon.update(&preimage);
 
         let challenge = native_poseidon.squeeze();
         let response = nonce - (challenge * pk.sk_sig);
 
-        Ok((Self { challenge, response, compute_key }, vec![g_r, pk_sig, pr_sig, address]))
+        Ok((Self { challenge, response, compute_key }, preimage))
     }
 
     pub fn verify(&self, address: Address, msg: &[Fr]) -> bool {
         let pk_sig = self.compute_key.pk_sig;
         let pr_sig = self.compute_key.pr_sig;
 
+        let a = G1Affine::generator() * self.response;
+        println!("a_1: {:?}", a.x);
+        let b = pk_sig * self.challenge;
+        println!("b_1: {:?}", b.x);
         let g_r = (G1Affine::generator() * self.response + (pk_sig * self.challenge)).to_affine();
+        println!("g_r1: {:?}", g_r.x);
 
         let mut preimage = Vec::with_capacity(4 + msg.len());
         preimage.extend(vec![g_r, pk_sig, pr_sig, address].iter().map(|g| Fr::from_bytes(&g.x.to_bytes()).unwrap()));

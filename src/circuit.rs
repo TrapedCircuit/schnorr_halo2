@@ -5,19 +5,14 @@ use snark_verifier::{
             RangeChip,
         },
         halo2_proofs::{
-            halo2curves::bn256::{Bn256, Fr, G1Affine},
+            halo2curves::bn256::{Bn256, Fq, Fr, G1Affine},
             plonk::{keygen_pk, keygen_vk},
             poly::kzg::commitment::ParamsKZG,
         },
         poseidon::hasher::PoseidonSponge,
-        Context,
+        AssignedValue, Context,
     },
-    halo2_ecc::{
-        bigint::ProperCrtUint,
-        bn254::FpChip,
-        ecc::{EcPoint, EccChip},
-        fields::FieldChip,
-    },
+    halo2_ecc::{bn254::FpChip, ecc::EccChip, fields::FieldChip},
 };
 use snark_verifier_sdk::{evm::gen_evm_proof_shplonk, CircuitExt};
 
@@ -90,11 +85,7 @@ impl AleoSchnorrCircuit {
         ecc_chip.assert_equal(ctx, candidate_address, address);
     }
 
-    pub fn evaluate_for_test(
-        &self,
-        ctx: &mut Context<Fr>,
-        range: &RangeChip<Fr>,
-    ) -> Vec<EcPoint<Fr, ProperCrtUint<Fr>>> {
+    pub fn evaluate_for_test(&self, ctx: &mut Context<Fr>, range: &RangeChip<Fr>) -> Vec<AssignedValue<Fr>> {
         let fp_chip = FpChip::new(range, LIMB_BITS, NUM_LIMB);
         let ecc_chip = EccChip::new(&fp_chip);
 
@@ -108,6 +99,7 @@ impl AleoSchnorrCircuit {
 
         let g_r = {
             let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], fp_chip.limb_bits, 4);
+            println!("a2: {:?}", Fq::from_bytes(&a.x.value().to_bytes_le().try_into().unwrap()).unwrap());
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
@@ -115,10 +107,12 @@ impl AleoSchnorrCircuit {
                 fp_chip.limb_bits,
                 4,
             );
+            println!("b2: {:?}", Fq::from_bytes(&b.x.value().to_bytes_le().try_into().unwrap()).unwrap());
             ecc_chip.add_unequal(ctx, a, b, true)
         };
+        println!("g_r2: {:?}", Fq::from_bytes(&g_r.x.value().to_bytes_le().try_into().unwrap()).unwrap());
 
-        let test = vec![pk_sig.clone(), pr_sig.clone(), address.clone()];
+        // let test = vec![g_r.clone(), pk_sig.clone(), pr_sig.clone(), address.clone()];
 
         let preimage = {
             let a = vec![g_r, pk_sig, pr_sig, address.clone()]
@@ -132,6 +126,9 @@ impl AleoSchnorrCircuit {
             preimage
         };
 
+        let test = preimage.clone();
+        println!("preimage2: {:?}", preimage.iter().map(|a| a.value()).collect::<Vec<_>>());
+
         let mut circuit_poseidon = PoseidonSponge::<_, 3, 2>::new::<RF, RP, 0>(ctx);
         circuit_poseidon.update(&preimage);
 
@@ -139,6 +136,7 @@ impl AleoSchnorrCircuit {
         let candidate_address = signature.compute_key.load_address(ctx, &ecc_chip);
 
         ctx.constrain_equal(&candidate_challenge, &signature.challenge);
+        println!("can: {:?}, real: {:?}", candidate_challenge.value(), signature.challenge.value());
         ecc_chip.assert_equal(ctx, candidate_address, address);
 
         test
@@ -170,8 +168,12 @@ impl AleoSchnorrCircuit {
 
 pub mod tests {
     use snark_verifier::{
-        halo2_base::halo2_proofs::{dev::MockProver, halo2curves::bn256::{Fr, G1Affine}},
-        halo2_ecc::{bn254::FpChip, ecc::EccChip}, util::arithmetic::PrimeField,
+        halo2_base::halo2_proofs::{
+            dev::MockProver,
+            halo2curves::bn256::{Fr, G1Affine},
+        },
+        halo2_ecc::{bn254::FpChip, ecc::EccChip},
+        util::arithmetic::PrimeField,
     };
     use snark_verifier_sdk::CircuitExt;
 
@@ -200,11 +202,10 @@ pub mod tests {
             let fp_chip = FpChip::new(&range, LIMB_BITS, NUM_LIMB);
             let ecc_chip = EccChip::new(&fp_chip);
             let g = G1Affine::generator();
-            let fr = Fr::from_u128(2u128);
-            let acc = (g * fr).to_affine();
+            let acc = (g * sigature.response).to_affine();
 
             let g_ = ecc_chip.assign_constant_point(ctx, g);
-            let fr_ = ctx.assign_witnesses(vec![fr]);
+            let fr_ = ctx.assign_witnesses(vec![sigature.response]);
             let acc_ = ecc_chip.scalar_mult::<G1Affine>(ctx, g_, fr_, LIMB_BITS, 4);
             let real_acc = ecc_chip.assign_constant_point(ctx, acc);
 
@@ -219,22 +220,26 @@ pub mod tests {
         let msg = sample_msg();
         let compute_key = ComputeKey::try_from(&private_key).unwrap();
         let address = compute_key.into();
-        let (sigature, test_affine) = Signature::sign_for_test(&private_key, &msg, &mut rng).unwrap();
+        let (sigature, test_1) = Signature::sign_for_test(&private_key, &msg, &mut rng).unwrap();
         assert!(sigature.verify(address, &msg));
 
         let (aleo, mut circuit, range) = AleoSchnorrCircuit::setup(sigature, address, &msg);
-        let test = aleo.evaluate_for_test(circuit.main(0), &range);
-
+        let test_2 = aleo.evaluate_for_test(circuit.main(0), &range);
+        let ctx = circuit.main(0);
+        println!("test len {}", test_1.len());
         {
-            let fp_chip = FpChip::new(&range, LIMB_BITS, NUM_LIMB);
-            let ecc_chip = EccChip::new(&fp_chip);
+            // let fp_chip = FpChip::new(&range, LIMB_BITS, NUM_LIMB);
+            // let ecc_chip = EccChip::new(&fp_chip);
 
-            let test_affine =
-                test_affine.iter().map(|g| ecc_chip.assign_point_unchecked(circuit.main(0), *g)).collect::<Vec<_>>();
+            // let test_affine =
+            //     test_affine.iter().map(|g| ecc_chip.assign_point_unchecked(circuit.main(0), *g)).collect::<Vec<_>>();
 
-            for (i, (a, b)) in test.into_iter().zip(test_affine.into_iter()).enumerate() {
+            let test_1 = ctx.assign_witnesses(test_1);
+
+            for (i, (a, b)) in test_2.into_iter().zip(test_1.into_iter()).enumerate() {
                 println!("i: {}", i);
-                ecc_chip.assert_equal(circuit.main(0), a, b);
+                // ecc_chip.assert_equal(circuit.main(0), a, b);
+                ctx.constrain_equal(&a, &b);
             }
         }
     }
@@ -250,9 +255,10 @@ pub mod tests {
         assert!(signature.verify(address, &msg));
 
         let (mut aleo, mut circuit, range) = AleoSchnorrCircuit::setup(signature, address, &msg);
-        aleo.evaluate(circuit.main(0), &range);
+        aleo.evaluate_for_test(circuit.main(0), &range);
         aleo.calculate_params(&mut circuit);
 
+        println!("123");
         MockProver::run(K as u32, &circuit, circuit.instances()).unwrap().assert_satisfied();
     }
 }
