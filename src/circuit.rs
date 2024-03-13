@@ -17,7 +17,8 @@ use snark_verifier::{
         bn254::FpChip,
         ecc::{EcPoint, EccChip},
         fields::FieldChip,
-    }, util::arithmetic::PrimeField,
+    },
+    util::arithmetic::PrimeField,
 };
 use snark_verifier_sdk::{evm::gen_evm_proof_shplonk, CircuitExt};
 
@@ -57,7 +58,8 @@ impl AleoSchnorrCircuit {
         let pr_sig = signature.compute_key.pr_sig.clone();
 
         let g_r = {
-            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
+            let a =
+                ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
@@ -107,7 +109,8 @@ impl AleoSchnorrCircuit {
         let pr_sig = signature.compute_key.pr_sig.clone();
 
         let g_r = {
-            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
+            let a =
+                ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
@@ -170,8 +173,12 @@ impl AleoSchnorrCircuit {
 
 pub mod tests {
     use snark_verifier::{
-        halo2_base::halo2_proofs::{dev::MockProver, halo2curves::bn256::{Fr, G1Affine}},
-        halo2_ecc::{bn254::FpChip, ecc::EccChip}, util::arithmetic::PrimeField,
+        halo2_base::halo2_proofs::{
+            dev::MockProver,
+            halo2curves::bn256::{Fr, G1Affine},
+        },
+        halo2_ecc::{bn254::FpChip, ecc::EccChip},
+        util::arithmetic::PrimeField,
     };
     use snark_verifier_sdk::CircuitExt;
 
@@ -205,7 +212,7 @@ pub mod tests {
 
             let g_ = ecc_chip.assign_constant_point(ctx, g);
             let fr_ = ctx.assign_witnesses(vec![fr]);
-            let acc_ = ecc_chip.scalar_mult::<G1Affine>(ctx, g_, fr_, LIMB_BITS, 4);
+            let acc_ = ecc_chip.scalar_mult::<G1Affine>(ctx, g_, fr_, Fr::NUM_BITS as usize, 4);
             let real_acc = ecc_chip.assign_constant_point(ctx, acc);
 
             ecc_chip.assert_equal(ctx, acc_, real_acc);

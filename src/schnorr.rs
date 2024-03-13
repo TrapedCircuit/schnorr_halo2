@@ -4,7 +4,7 @@ use snark_verifier::halo2_base::{AssignedValue, Context};
 use snark_verifier::halo2_ecc::bigint::ProperCrtUint;
 use snark_verifier::halo2_ecc::bn254::FpChip;
 use snark_verifier::halo2_ecc::ecc::{EcPoint, EccChip};
-use snark_verifier::util::arithmetic::{Curve, Field};
+use snark_verifier::util::arithmetic::{Curve, Field, PrimeField};
 
 pub const RF: usize = 8;
 pub const RP: usize = 57;
@@ -46,7 +46,11 @@ impl Signature {
         Ok(Self { challenge, response, compute_key })
     }
 
-    pub fn sign_for_test<R: Rng + CryptoRng>(pk: &PrivateKey, msg: &[Fr], rng: &mut R) -> anyhow::Result<(Self, Vec<G1Affine>)> {
+    pub fn sign_for_test<R: Rng + CryptoRng>(
+        pk: &PrivateKey,
+        msg: &[Fr],
+        rng: &mut R,
+    ) -> anyhow::Result<(Self, Vec<G1Affine>)> {
         let nonce = Fr::random(rng);
         let g_r = (G1Affine::generator() * nonce).to_affine();
 
@@ -89,11 +93,7 @@ impl Signature {
 
     pub fn load_witness(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> SignatureCircuit {
         let [challenge, response]: [_; 2] = ctx.assign_witnesses([self.challenge, self.response]).try_into().unwrap();
-        SignatureCircuit {
-            challenge,
-            response,
-            compute_key: self.compute_key.load_witness(ctx, ecc_chip),
-        }
+        SignatureCircuit { challenge, response, compute_key: self.compute_key.load_witness(ctx, ecc_chip) }
     }
 }
 
@@ -122,25 +122,35 @@ pub struct ComputeKeyCircuit {
 }
 
 impl ComputeKeyCircuit {
-    pub fn load_address(&self, ctx: &mut Context<Fr>, ecc_chip: &EccChip<Fr, FpChip<Fr>>) -> EcPoint<Fr, ProperCrtUint<Fr>> {
+    pub fn load_address(
+        &self,
+        ctx: &mut Context<Fr>,
+        ecc_chip: &EccChip<Fr, FpChip<Fr>>,
+    ) -> EcPoint<Fr, ProperCrtUint<Fr>> {
         let g = G1Affine::generator();
-        let g = ecc_chip.assign_point_unchecked(ctx, g);
-        let pk_prf = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![self.sk_prf.clone()], ecc_chip.field_chip().limb_bits, 4);
-        let pk_prf = ecc_chip.add_unequal(ctx, pk_prf, self.pk_sig.clone(), true);
-        let pk_prf = ecc_chip.add_unequal(ctx, pk_prf, self.pr_sig.clone(), true);
-        pk_prf
+        let g = ecc_chip.assign_constant_point(ctx, g);
+        let pk_prf = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![self.sk_prf.clone()], Fr::NUM_BITS as usize, 4);
+        let a = ecc_chip.add_unequal(ctx, pk_prf, self.pk_sig.clone(), true);
+        let result = ecc_chip.add_unequal(ctx, a, self.pr_sig.clone(), true);
+        result
     }
 }
-
-
 
 impl TryFrom<&PrivateKey> for ComputeKey {
     type Error = anyhow::Error;
 
     fn try_from(private_key: &PrivateKey) -> Result<Self, Self::Error> {
-        let pk_sig = G1Affine::generator() * private_key.sk_sig;
-        let pr_sig = G1Affine::generator() * private_key.r_sig;
-        Ok(Self { pk_sig: pk_sig.to_affine(), pr_sig: pr_sig.to_affine(), sk_prf: private_key.sk_sig })
+        let pk_sig = (G1Affine::generator() * private_key.sk_sig).to_affine();
+        let pr_sig = (G1Affine::generator() * private_key.r_sig).to_affine();
+
+        let mut native_poseidon = pse_poseidon::Poseidon::<Fr, 3, 2>::new(RF, RP);
+        let preimage =
+            vec![pk_sig.x, pr_sig.x].iter().map(|x| Fr::from_bytes(&x.to_bytes()).unwrap()).collect::<Vec<_>>();
+
+        native_poseidon.update(&preimage);
+        let sk_prf = native_poseidon.squeeze();
+
+        Ok(Self { pk_sig, pr_sig, sk_prf })
     }
 }
 

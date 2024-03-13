@@ -3,7 +3,11 @@ use snark_verifier::{
         halo2curves::bn256::{Bn256, Fq, Fr, G1Affine},
         plonk::VerifyingKey,
         poly::{commitment::ParamsProver, kzg::commitment::ParamsKZG},
-    }, loader::evm::{compile_solidity, EvmLoader}, system::halo2::{compile, transcript::evm::EvmTranscript, Config}, util::arithmetic::Field, verifier::SnarkVerifier
+    },
+    loader::evm::{compile_solidity, EvmLoader},
+    system::halo2::{compile, transcript::evm::EvmTranscript, Config},
+    util::arithmetic::Field,
+    verifier::SnarkVerifier,
 };
 use snark_verifier_sdk::{evm::EvmKzgAccumulationScheme, PlonkVerifier};
 use std::{fs, path::Path, rc::Rc};
@@ -41,14 +45,9 @@ where
     byte_code
 }
 
-
 pub fn sample_private_key() -> PrivateKey {
     let mut rng = rand::thread_rng();
-    PrivateKey {
-        seed: Fq::random(&mut rng),
-        sk_sig: Fr::random(&mut rng),
-        r_sig: Fr::random(&mut rng),
-    }
+    PrivateKey { seed: Fq::random(&mut rng), sk_sig: Fr::random(&mut rng), r_sig: Fr::random(&mut rng) }
 }
 
 pub fn sample_msg() -> Vec<Fr> {
