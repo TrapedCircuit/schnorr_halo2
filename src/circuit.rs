@@ -6,7 +6,7 @@ use snark_verifier::{
         },
         halo2_proofs::{
             halo2curves::bn256::{Bn256, Fr, G1Affine},
-            plonk::{keygen_pk, keygen_vk},
+            plonk::{keygen_pk, keygen_vk, ProvingKey, VerifyingKey},
             poly::kzg::commitment::ParamsKZG,
         },
         poseidon::hasher::PoseidonSponge,
@@ -31,18 +31,22 @@ const LIMB_BITS: usize = 88;
 const NUM_LIMB: usize = 3;
 
 pub struct AleoSchnorrCircuit {
-    pub params: Option<BaseCircuitParams>,
+    pub config_params: Option<BaseCircuitParams>,
 
     pub signature: Signature,
     pub address: Address,
     pub msg: Vec<Fr>,
+
+    pub pk: Option<ProvingKey<G1Affine>>,
+    pub vk: Option<VerifyingKey<G1Affine>>,
+    pub params: Option<ParamsKZG<Bn256>>,
 }
 
 impl AleoSchnorrCircuit {
     pub fn setup(signature: Signature, address: Address, msg: &[Fr]) -> (Self, RangeCircuitBuilder<Fr>, RangeChip<Fr>) {
         let circuit = RangeCircuitBuilder::default().use_k(K).use_lookup_bits(LOOKUP_BITS);
         let range = RangeChip::new(LOOKUP_BITS, circuit.lookup_manager().clone());
-        (Self { params: None, signature, address, msg: msg.to_vec() }, circuit, range)
+        (Self { config_params: None, signature, address, msg: msg.to_vec(), pk: None, vk: None, params: None }, circuit, range)
     }
 
     pub fn evaluate(&self, ctx: &mut Context<Fr>, range: &RangeChip<Fr>) {
@@ -152,22 +156,26 @@ impl AleoSchnorrCircuit {
         let look_up_bits = if t_cells_lookup == 0 { None } else { Some(LOOKUP_BITS) };
         circuit.config_params.lookup_bits = look_up_bits;
         let config_params = circuit.calculate_params(Some(9));
-        self.params = Some(config_params);
+        self.config_params = Some(config_params);
     }
 
     pub fn gen_proof(&mut self, circuit: &mut RangeCircuitBuilder<Fr>) -> Vec<u8> {
-        let config_params = self.params.clone().expect("params should be calculated");
+        let config_params = self.config_params.clone().expect("params should be calculated");
         let mut rng = rand::thread_rng();
         let params = ParamsKZG::<Bn256>::setup(K as u32, &mut rng);
         let vk = keygen_vk(&params, circuit).expect("vk should not fail");
-        let pk = keygen_pk(&params, vk, circuit).expect("pk should not fail");
+        let pk = keygen_pk(&params, vk.clone(), circuit).expect("pk should not fail");
         let break_points = circuit.break_points();
 
         let mut circuit = RangeCircuitBuilder::<Fr>::prover(config_params, break_points);
         let range = RangeChip::new(LOOKUP_BITS, circuit.lookup_manager().clone());
         self.evaluate(circuit.main(0), &range);
         let instances = circuit.instances();
-        gen_evm_proof_shplonk(&params, &pk, circuit, instances)
+        let proof = gen_evm_proof_shplonk(&params, &pk, circuit, instances);
+        self.pk = Some(pk);
+        self.vk = Some(vk);
+        self.params = Some(params);
+        proof
     }
 }
 
@@ -180,12 +188,12 @@ pub mod tests {
         halo2_ecc::{bn254::FpChip, ecc::EccChip},
         util::arithmetic::PrimeField,
     };
-    use snark_verifier_sdk::CircuitExt;
+    use snark_verifier_sdk::{evm::evm_verify, CircuitExt, SHPLONK};
 
     use crate::{
         circuit::{AleoSchnorrCircuit, K, LIMB_BITS, NUM_LIMB},
         schnorr::{ComputeKey, Signature},
-        utils::{sample_msg, sample_private_key},
+        utils::{self, sample_msg, sample_private_key},
     };
     use snark_verifier::util::arithmetic::Curve;
 
@@ -261,5 +269,24 @@ pub mod tests {
         aleo.calculate_params(&mut circuit);
 
         MockProver::run(K as u32, &circuit, circuit.instances()).unwrap().assert_satisfied();
+    }
+
+    #[test]
+    fn test_gen_proof() {
+        let mut rng = rand::thread_rng();
+        let private_key = sample_private_key();
+        let msg = sample_msg();
+        let compute_key = ComputeKey::try_from(&private_key).unwrap();
+        let address = compute_key.into();
+        let signature = Signature::sign(&private_key, &msg, &mut rng).unwrap();
+        assert!(signature.verify(address, &msg));
+
+        let (mut aleo, mut circuit, range) = AleoSchnorrCircuit::setup(signature, address, &msg);
+        aleo.evaluate(circuit.main(0), &range);
+        aleo.calculate_params(&mut circuit);
+        let proof = aleo.gen_proof(&mut circuit);
+
+        let deployment_code = utils::gen_evm_verifier::<SHPLONK>(&aleo.params.unwrap(), aleo.pk.unwrap().get_vk(), circuit.num_instance(), None);
+        evm_verify(deployment_code, circuit.instances(), proof);
     }
 }
