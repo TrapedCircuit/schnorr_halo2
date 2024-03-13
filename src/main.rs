@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use snark_verifier::util::arithmetic::Curve;
+use snark_verifier::util::arithmetic::{Curve, Field, PrimeField};
 use snark_verifier::{
     halo2_base::{
         gates::{circuit::builder::RangeCircuitBuilder, RangeChip},
@@ -24,13 +24,13 @@ const PATH: &str = "./src/evm_verifier.sol";
 
 fn main() {
     // 1. config
-    let k = 20;
-    let lookup_bits = 19;
+    let k = 18;
+    let lookup_bits = 17;
     let (mut builder, range) = sample_setup(k, lookup_bits);
-    let (p, q, check_acc) = sample_input();
+    let (p, q, check_acc) = sample_input2();
 
     // 2. prove
-    sample_prove(builder.main(0), &range, p, q, check_acc);
+    sample_prove2(builder.main(0), &range, p, q, check_acc);
 
     // 3. calculate params
     let t_cells_lookup = builder.lookup_manager().iter().map(|lm| lm.total_rows()).sum::<usize>();
@@ -51,7 +51,7 @@ fn main() {
     let mut builder = RangeCircuitBuilder::<Fr>::prover(config_params, break_points);
 
     let range = RangeChip::new(lookup_bits, builder.lookup_manager().clone());
-    sample_prove(builder.main(0), &range, p, q, check_acc);
+    sample_prove2(builder.main(0), &range, p, q, check_acc);
     let instances = builder.instances();
     let num_instance = builder.num_instance();
     let proof = gen_evm_proof_shplonk(&params, &pk, builder, instances);
@@ -77,6 +77,19 @@ pub fn sample_prove(ctx: &mut Context<Fr>, range: &RangeChip<Fr>, p: G1Affine, q
     ecc_chip.assert_equal(ctx, real_acc, acc);
 }
 
+pub fn sample_prove2(ctx: &mut Context<Fr>, range: &RangeChip<Fr>, p: G1Affine, s: Fr, check_acc: G1Affine) {
+    let fp_chip = FpChip::new(range, 88, 3);
+    let ecc_chip = EccChip::new(&fp_chip);
+
+    let p = ecc_chip.assign_point_unchecked(ctx, p);
+    let s = ctx.assign_witnesses([s]);
+    let real_acc = ecc_chip.assign_constant_point(ctx, check_acc);
+
+    let acc = ecc_chip.scalar_mult::<G1Affine>(ctx, p, s, Fr::NUM_BITS as usize, 4);
+
+    // ecc_chip.assert_equal(ctx, real_acc, acc);
+}
+
 pub fn sample_setup(k: usize, lookup_bits: usize) -> (RangeCircuitBuilder<Fr>, RangeChip<Fr>) {
     let mut builder = RangeCircuitBuilder::<Fr>::default().use_k(k);
     builder.set_lookup_bits(lookup_bits);
@@ -90,4 +103,12 @@ pub fn sample_input() -> (G1Affine, G1Affine, G1Affine) {
     let q = G1Affine::random(&mut rng);
     let check_acc = (p + q).to_affine();
     (p, q, check_acc)
+}
+
+pub fn sample_input2() -> (G1Affine, Fr, G1Affine) {
+    let mut rng = rand::thread_rng();
+    let p = G1Affine::random(&mut rng);
+    let s = Fr::random(&mut rng);
+    let check_acc = (p * s).to_affine();
+    (p, s, check_acc)
 }

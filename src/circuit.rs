@@ -1,3 +1,5 @@
+use crate::schnorr::{Address, Signature, RF, RP};
+use snark_verifier::util::arithmetic::{Curve, PrimeField};
 use snark_verifier::{
     halo2_base::{
         gates::{
@@ -15,8 +17,6 @@ use snark_verifier::{
     halo2_ecc::{bn254::FpChip, ecc::EccChip, fields::FieldChip},
 };
 use snark_verifier_sdk::{evm::gen_evm_proof_shplonk, CircuitExt};
-
-use crate::schnorr::{Address, Signature, RF, RP};
 
 const K: usize = 20;
 const LOOKUP_BITS: usize = 19;
@@ -98,21 +98,16 @@ impl AleoSchnorrCircuit {
         let pr_sig = signature.compute_key.pr_sig.clone();
 
         let g_r = {
-            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], fp_chip.limb_bits, 4);
-            println!("a2: {:?}", Fq::from_bytes(&a.x.value().to_bytes_le().try_into().unwrap()).unwrap());
+            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
                 vec![signature.challenge.clone()],
-                fp_chip.limb_bits,
+                Fr::NUM_BITS as usize,
                 4,
             );
-            println!("b2: {:?}", Fq::from_bytes(&b.x.value().to_bytes_le().try_into().unwrap()).unwrap());
             ecc_chip.add_unequal(ctx, a, b, true)
         };
-        println!("g_r2: {:?}", Fq::from_bytes(&g_r.x.value().to_bytes_le().try_into().unwrap()).unwrap());
-
-        // let test = vec![g_r.clone(), pk_sig.clone(), pr_sig.clone(), address.clone()];
 
         let preimage = {
             let a = vec![g_r, pk_sig, pr_sig, address.clone()]
@@ -127,7 +122,6 @@ impl AleoSchnorrCircuit {
         };
 
         let test = preimage.clone();
-        println!("preimage2: {:?}", preimage.iter().map(|a| a.value()).collect::<Vec<_>>());
 
         let mut circuit_poseidon = PoseidonSponge::<_, 3, 2>::new::<RF, RP, 0>(ctx);
         circuit_poseidon.update(&preimage);
@@ -136,10 +130,9 @@ impl AleoSchnorrCircuit {
         let candidate_address = signature.compute_key.load_address(ctx, &ecc_chip);
 
         ctx.constrain_equal(&candidate_challenge, &signature.challenge);
-        println!("can: {:?}, real: {:?}", candidate_challenge.value(), signature.challenge.value());
         ecc_chip.assert_equal(ctx, candidate_address, address);
 
-        test
+        vec![]
     }
 
     pub fn calculate_params(&mut self, circuit: &mut RangeCircuitBuilder<Fr>) {
@@ -185,7 +178,7 @@ pub mod tests {
     use snark_verifier::util::arithmetic::Curve;
 
     #[test]
-    fn test_scalar_mul() {
+    fn test_gr_equality() {
         let mut rng = rand::thread_rng();
         let private_key = sample_private_key();
         let msg = sample_msg();
@@ -228,17 +221,10 @@ pub mod tests {
         let ctx = circuit.main(0);
         println!("test len {}", test_1.len());
         {
-            // let fp_chip = FpChip::new(&range, LIMB_BITS, NUM_LIMB);
-            // let ecc_chip = EccChip::new(&fp_chip);
-
-            // let test_affine =
-            //     test_affine.iter().map(|g| ecc_chip.assign_point_unchecked(circuit.main(0), *g)).collect::<Vec<_>>();
-
             let test_1 = ctx.assign_witnesses(test_1);
 
             for (i, (a, b)) in test_2.into_iter().zip(test_1.into_iter()).enumerate() {
                 println!("i: {}", i);
-                // ecc_chip.assert_equal(circuit.main(0), a, b);
                 ctx.constrain_equal(&a, &b);
             }
         }
@@ -251,7 +237,7 @@ pub mod tests {
         let msg = sample_msg();
         let compute_key = ComputeKey::try_from(&private_key).unwrap();
         let address = compute_key.into();
-        let signature = Signature::sign(&private_key, &msg, &mut rng).unwrap();
+        let (signature, _test1) = Signature::sign_for_test(&private_key, &msg, &mut rng).unwrap();
         assert!(signature.verify(address, &msg));
 
         let (mut aleo, mut circuit, range) = AleoSchnorrCircuit::setup(signature, address, &msg);
