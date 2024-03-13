@@ -1,5 +1,7 @@
 # Aleo-style Schnorr in Halo2
 
+[**source**](https://github.com/AleoHQ/snarkVM/blob/mainnet-staging/console/account/src/signature/verify.rs)
+
 ## Target
 
 - [x] Pass MockProver
