@@ -17,7 +17,7 @@ use snark_verifier::{
         bn254::FpChip,
         ecc::{EcPoint, EccChip},
         fields::FieldChip,
-    },
+    }, util::arithmetic::PrimeField,
 };
 use snark_verifier_sdk::{evm::gen_evm_proof_shplonk, CircuitExt};
 
@@ -57,12 +57,12 @@ impl AleoSchnorrCircuit {
         let pr_sig = signature.compute_key.pr_sig.clone();
 
         let g_r = {
-            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], fp_chip.limb_bits, 4);
+            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
                 vec![signature.challenge.clone()],
-                fp_chip.limb_bits,
+                Fr::NUM_BITS as usize,
                 4,
             );
             ecc_chip.add_unequal(ctx, a, b, true)
@@ -107,12 +107,12 @@ impl AleoSchnorrCircuit {
         let pr_sig = signature.compute_key.pr_sig.clone();
 
         let g_r = {
-            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], fp_chip.limb_bits, 4);
+            let a = ecc_chip.scalar_mult::<G1Affine>(ctx, g, vec![signature.response.clone()], Fr::NUM_BITS as usize, 4);
             let b = ecc_chip.scalar_mult::<G1Affine>(
                 ctx,
                 pk_sig.clone(),
                 vec![signature.challenge.clone()],
-                fp_chip.limb_bits,
+                Fr::NUM_BITS as usize,
                 4,
             );
             ecc_chip.add_unequal(ctx, a, b, true)
