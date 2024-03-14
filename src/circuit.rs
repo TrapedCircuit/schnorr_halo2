@@ -179,7 +179,8 @@ impl AleoSchnorrCircuit {
     }
 }
 
-pub mod tests {
+#[cfg(test)]
+mod tests {
     use snark_verifier::{
         halo2_base::halo2_proofs::{
             dev::MockProver,

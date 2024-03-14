@@ -170,7 +170,8 @@ pub struct PrivateKey {
     pub r_sig: Fr,
 }
 
-pub mod tests {
+#[cfg(test)]
+mod tests {
     use super::*;
     use rand::rngs::OsRng;
 
